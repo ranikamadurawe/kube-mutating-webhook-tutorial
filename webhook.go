@@ -88,12 +88,12 @@ func loadConfig(configFile string) (*Config, error) {
 		return nil, err
 	}
 	glog.Infof("New configuration: sha256sum %x", sha256.Sum256(data))
-	
+
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
-	
+
 	return &cfg, nil
 }
 
@@ -113,7 +113,7 @@ func mutationRequired(ignoredList []string, metadata *metav1.ObjectMeta) bool {
 	}
 
 	status := annotations[admissionWebhookAnnotationStatusKey]
-	
+
 	// determine whether to perform mutation based on annotation for the target resource
 	var required bool
 	if strings.ToLower(status) == "injected" {
@@ -126,7 +126,7 @@ func mutationRequired(ignoredList []string, metadata *metav1.ObjectMeta) bool {
 			required = true
 		}
 	}
-	
+
 	glog.Infof("Mutation policy for %v/%v: status: %q required:%v", metadata.Namespace, metadata.Name, status, required)
 	return required
 }
@@ -153,7 +153,7 @@ func addContainer(target, added []corev1.Container, basePath string) (patch []pa
 }
 
 func addVolumeMount(target, added []corev1.VolumeMount, basePath string) (patch []patchOperation){
-    return patch
+	return patch
 }
 
 func addEnvVar(target, added []corev1.EnvVar, basePath string) (patch []patchOperation){
@@ -235,15 +235,15 @@ func (whsvr *WebhookServer) mutate(ar *v1beta1.AdmissionReview) *v1beta1.Admissi
 
 	glog.Infof("AdmissionReview for Kind=%v, Namespace=%v Name=%v (%v) UID=%v patchOperation=%v UserInfo=%v",
 		req.Kind, req.Namespace, req.Name, pod.Name, req.UID, req.Operation, req.UserInfo)
-	
+
 	// determine whether to perform mutation
 	if !mutationRequired(ignoredNamespaces, &pod.ObjectMeta) {
 		glog.Infof("Skipping mutation for %s/%s due to policy check", pod.Namespace, pod.Name)
 		return &v1beta1.AdmissionResponse {
-			Allowed: true, 
+			Allowed: true,
 		}
 	}
-	
+
 	// Workaround: https://github.com/kubernetes/kubernetes/issues/57982
 	applyDefaultsWorkaround(whsvr.sidecarConfig.Containers, whsvr.sidecarConfig.Volumes)
 	annotations := map[string]string{admissionWebhookAnnotationStatusKey: "injected"}
@@ -255,7 +255,7 @@ func (whsvr *WebhookServer) mutate(ar *v1beta1.AdmissionReview) *v1beta1.Admissi
 			},
 		}
 	}
-	
+
 	glog.Infof("AdmissionResponse: patch=%v\n", string(patchBytes))
 	return &v1beta1.AdmissionResponse {
 		Allowed: true,
@@ -299,7 +299,7 @@ func (whsvr *WebhookServer) serve(w http.ResponseWriter, r *http.Request) {
 			},
 		}
 	} else {
-		admissionResponse = whsvk8sr.mutate(&ar)
+		admissionResponse = whsvr.mutate(&ar)
 	}
 
 	admissionReview := v1beta1.AdmissionReview{}

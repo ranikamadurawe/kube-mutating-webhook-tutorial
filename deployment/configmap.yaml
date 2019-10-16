@@ -5,7 +5,7 @@ metadata:
 data:
   sidecarconfig.yaml: |
     containers:
-      - name: sidecar-nginx
+      - name: sideca<<<<<<< HEADr-nginx
         image: nginx:1.12.2
         imagePullPolicy: IfNotPresent
         ports:
@@ -34,3 +34,4 @@ data:
     - name: podip
       valueFrom:
         fieldRef: {fieldPath: status.podIP}
+
