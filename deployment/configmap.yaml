@@ -9,16 +9,15 @@ data:
         image: nginx:1.12.2
         imagePullPolicy: IfNotPresent
         volumeMounts:
-          - name: testGridLogMount
-            mountPath: /var/log/default
+          - name: testgrid
+            mountPath: /var/log/
     volumes:
-      - name: testGridLogMount
+      - name: testgrid
         hostPath:
           path: /var/log/default
     volumeMounts:
-      - name: testGridLogMount
+      - name: testgrid
         mountPath: /var/log/
-        subPathExpr: $(podname)
     env:
     - name: nodename
       valueFrom:
