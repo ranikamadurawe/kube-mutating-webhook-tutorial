@@ -5,18 +5,16 @@ metadata:
 data:
   sidecarconfig.yaml: |
     containers:
-      - name: sideca<<<<<<< HEADr-nginx
+      - name: sidecar-nginx
         image: nginx:1.12.2
         imagePullPolicy: IfNotPresent
-        ports:
-          - containerPort: 80
         volumeMounts:
-          - name: nginx-conf
-            mountPath: /etc/nginx
+          - name: testGridLogMount
+            mountPath: /var/log/default
     volumes:
       - name: testGridLogMount
         hostPath:
-          path: /var/log/<<DEPNAME>>
+          path: /var/log/default
     volumeMounts:
       - name: testGridLogMount
         mountPath: /var/log/

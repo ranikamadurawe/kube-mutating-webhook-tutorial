@@ -3,6 +3,8 @@
   <component name="ChangeListManager">
     <list default="true" id="06d3a5de-8888-4ed8-bdb2-546c110e3d6a" name="Default Changelist" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Gopkg.lock" beforeDir="false" afterPath="$PROJECT_DIR$/Gopkg.lock" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/build" beforeDir="false" afterPath="$PROJECT_DIR$/build" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/deployment/configmap.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/deployment/configmap.yaml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/webhook.go" beforeDir="false" afterPath="$PROJECT_DIR$/webhook.go" afterDir="false" />
     </list>
@@ -29,6 +31,7 @@
     <property name="configurable.Project.GOPATH.is.expanded" value="true" />
     <property name="go.import.settings.migrated" value="true" />
     <property name="go.tried.to.enable.integration.dep.integrator" value="true" />
+    <property name="go.vendoring.notification.had.been.shown" value="true" />
     <property name="last_opened_file_path" value="$PROJECT_DIR$" />
   </component>
   <component name="RunDashboard">
@@ -51,7 +54,9 @@
       <map>
         <entry key="MAIN">
           <value>
-            <State />
+            <State>
+              <option name="COLUMN_ORDER" />
+            </State>
           </value>
         </entry>
       </map>

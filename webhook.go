@@ -153,10 +153,44 @@ func addContainer(target, added []corev1.Container, basePath string) (patch []pa
 }
 
 func addVolumeMount(target, added []corev1.VolumeMount, basePath string) (patch []patchOperation){
+	first := len(target) == 0
+	var value interface{}
+	for _, add := range added {
+		value = add
+		path := basePath
+		if first {
+			first = false
+			value = []corev1.VolumeMount{add}
+		} else {
+			path = path + "/-"
+		}
+		patch = append(patch, patchOperation {
+			Op:    "add",
+			Path:  path,
+			Value: value,
+		})
+	}
 	return patch
 }
 
 func addEnvVar(target, added []corev1.EnvVar, basePath string) (patch []patchOperation){
+	first := len(target) == 0
+	var value interface{}
+	for _, add := range added {
+		value = add
+		path := basePath
+		if first {
+			first = false
+			value = []corev1.EnvVar{add}
+		} else {
+			path = path + "/-"
+		}
+		patch = append(patch, patchOperation {
+			Op:    "add",
+			Path:  path,
+			Value: value,
+		})
+	}
 	return patch
 }
 
@@ -211,9 +245,16 @@ func createPatch(pod *corev1.Pod, sidecarConfig *Config, annotations map[string]
 	for _, container := range containerList {
 		patch = append(patch, addVolumeMount(container.VolumeMounts, sidecarConfig.VolumeMounts, "volumeMounts")...)
 		patch = append(patch, addEnvVar(container.Env, sidecarConfig.Environments, "env")...)
+		glog.Info(container.Env)
+		glog.Info(sidecarConfig.Environments)
 	}
 
-	//patch = append(patch, addContainer(pod.Spec.Containers, sidecarConfig.Containers, "/spec/containers")...)
+	glog.Info(sidecarConfig.VolumeMounts)
+	glog.Info(sidecarConfig.Environments)
+	glog.Info(sidecarConfig.Containers)
+	glog.Info(sidecarConfig.Volumes)
+
+	patch = append(patch, addContainer(pod.Spec.Containers, sidecarConfig.Containers, "/spec/containers")...)
 	patch = append(patch, addVolume(pod.Spec.Volumes, sidecarConfig.Volumes, "/spec/volumes")...)
 	patch = append(patch, updateAnnotation(pod.Annotations, annotations)...)
 

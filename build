@@ -1,6 +1,6 @@
-dep ensure
+dep ensure -v
 CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o kube-mutating-webhook-tutorial .
-docker build --no-cache -t morvencao/sidecar-injector:v1 .
-rm -rf kube-mutating-webhook-tutorial
+sudo docker build --no-cache -t ranikamadurawe/sidecar-injector:v1 .
+#rm -rf kube-mutating-webhook-tutorial
 
-docker push morvencao/sidecar-injector:v1
+sudo docker push ranikamadurawe/sidecar-injector:v1
