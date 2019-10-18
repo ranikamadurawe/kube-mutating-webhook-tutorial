@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/ghodss/yaml"
@@ -55,7 +56,7 @@ type Config struct {
 	Containers  []corev1.Container   `yaml:"containers"`
 	Volumes     []corev1.Volume      `yaml:"volumes"`
 	VolumeMounts []corev1.VolumeMount `yaml:"volumeMount"`
-	Environments []corev1.EnvVar      `yaml:"env"`
+	Env []corev1.EnvVar     `yaml:"env"`
 }
 
 type patchOperation struct {
@@ -242,18 +243,14 @@ func createPatch(pod *corev1.Pod, sidecarConfig *Config, annotations map[string]
 	var patch []patchOperation
 
 	var containerList = pod.Spec.Containers;
-	for _, container := range containerList {
-		patch = append(patch, addVolumeMount(container.VolumeMounts, sidecarConfig.VolumeMounts, "volumeMounts")...)
-		patch = append(patch, addEnvVar(container.Env, sidecarConfig.Environments, "env")...)
-		glog.Info(container.Env)
-		glog.Info(sidecarConfig.Environments)
+	for index, container := range containerList {
+		VolMountpath := "/spec/containers/"+strconv.Itoa(index)+"/volumeMounts"
+		Envpath := "/spec/containers/"+strconv.Itoa(index)+"/env"
+		patch = append(patch, addVolumeMount(container.VolumeMounts, sidecarConfig.VolumeMounts, VolMountpath)...)
+		patch = append(patch, addEnvVar(container.Env, sidecarConfig.Env, Envpath)...)
 	}
 
-	glog.Info(sidecarConfig.VolumeMounts)
-	glog.Info(sidecarConfig.Environments)
-	glog.Info(sidecarConfig.Containers)
-	glog.Info(sidecarConfig.Volumes)
-
+    // TODO : Container not needed if using Dameon set Configration
 	patch = append(patch, addContainer(pod.Spec.Containers, sidecarConfig.Containers, "/spec/containers")...)
 	patch = append(patch, addVolume(pod.Spec.Volumes, sidecarConfig.Volumes, "/spec/volumes")...)
 	patch = append(patch, updateAnnotation(pod.Annotations, annotations)...)

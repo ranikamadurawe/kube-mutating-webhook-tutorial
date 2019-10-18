@@ -4,33 +4,6 @@ metadata:
   name: sidecar-injector-webhook-configmap
 data:
   sidecarconfig.yaml: |
-    containers:
-      - name: sidecar-nginx
-        image: nginx:1.12.2
-        imagePullPolicy: IfNotPresent
-        volumeMounts:
-          - name: nginx-conf
-            mountPath: /etc/nginx
-          - name: testgrid
-            mountPath: /opt/testgrid
-            subPathExpr: ${podname}
-        env:
-          - name: nodename
-            valueFrom:
-              fieldRef:
-                fieldPath: spec.nodeName
-          - name: podname
-            valueFrom:
-              fieldRef:
-                fieldPath: metadata.name
-          - name: podnamespace
-            valueFrom:
-              fieldRef:
-                fieldPath: metadata.namespace
-          - name: podip
-            valueFrom:
-              fieldRef:
-                fieldPath: status.podIP
     volumes:
       - name: nginx-conf
         configMap:
