@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logstash-yaml
+data:
+  logstash.yaml: |
+    http.host: "0.0.0.0"
+    path.config: /usr/share/logstash/pipeline
+    log.level: debug
+    path.logs: /usr/share/logstash/log
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logstash-conf
+data:
+  logstash.conf: |
+    http.host: "0.0.0.0"
+    path.config: /usr/share/logstash/pipeline
+    log.level: debug
+    path.logs: /usr/share/logstash/log

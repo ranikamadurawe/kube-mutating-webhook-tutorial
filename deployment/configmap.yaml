@@ -4,16 +4,30 @@ metadata:
   name: sidecar-injector-webhook-configmap
 data:
   sidecarconfig.yaml: |
-    containers:
-      - name: sidecar-nginx
-        image: nginx:1.12.2
-        imagePullPolicy: IfNotPresent
+    initcontainers:
+      - name: init-logstash-plugins-install
+        image: docker.elastic.co/logstash/logstash:{{ default "7.2.0" .Values.wso2.centralizedLogging.logstash.imageTag }}
+        command:
+          - /bin/bash
+          - "-c"
+          - |
+            set -e
+            ./bin/logstash-plugin install logstash-codec-multiline logstash-filter-grok
         volumeMounts:
-          - name: nginx-conf
-            mountPath: /etc/nginx
-          - name: testgrid
-            mountPath: /opt/testgrid
-            subPathExpr: ${podname}
+          - name: shared-plugins-logstash
+            mountPath: /usr/share/logstash/plugins/
+    containers:
+      - name: logstash-sidecar
+        image: docker.elastic.co/logstash/logstash:7.2.0
+        volumeMounts:
+          - name: shared-plugins-logstash
+            mountPath: /usr/share/logstash/plugins/
+          - name: logstash-yaml
+            mountPath: /usr/share/logstash/config/logstash.yaml
+            subPath: logstash.yaml
+          - name: logstash-conf
+            mountPath: /usr/share/logstash/pipeline/logstash.conf
+            subPath: logstash.conf
         env:
           - name: nodename
             valueFrom:
@@ -32,16 +46,14 @@ data:
               fieldRef:
                 fieldPath: status.podIP
     volumes:
-      - name: nginx-conf
+      - name: shared-plugins-logstash
+        emptyDir: {}
+      - name: logstash-yaml
         configMap:
-          name: nginx-configmap
-      - name: testgrid
-        hostPath:
-          path: /var/logs/default
-    volumeMounts:
-      - name: testgrid
-        mountPath: /opt/testgrid
-        subPathExpr: ${podname}
+          name: logstash-yaml
+      - name: logstash-conf
+        configMap:
+          name: logstash-conf
     env:
       - name: nodename
         valueFrom:
