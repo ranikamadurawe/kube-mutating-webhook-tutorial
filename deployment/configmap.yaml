@@ -6,7 +6,7 @@ data:
   sidecarconfig.yaml: |
     initcontainers:
       - name: init-logstash-plugins-install
-        image: docker.elastic.co/logstash/logstash:{{ default "7.2.0" .Values.wso2.centralizedLogging.logstash.imageTag }}
+        image: docker.elastic.co/logstash/logstash:7.2.0
         command:
           - /bin/bash
           - "-c"
