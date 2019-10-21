@@ -217,6 +217,7 @@ func addVolume(target, added []corev1.Volume, basePath string) (patch []patchOpe
 	return patch
 }
 
+
 func addInitContainer(target, added []corev1.Container, basePath string) (patch []patchOperation) {
 	first := len(target) == 0
 	var value interface{}
@@ -284,30 +285,52 @@ func createPatch(pod *corev1.Pod, sidecarConfig *Config, annotations map[string]
 
 
 	// Adding volume Mounts to containers
-	var sideCarInjectVolMounts = []corev1.VolumeMount{}
+	var sidecarInjectVolMounts = []corev1.VolumeMount{}
 	var volumes = []corev1.Volume{}
+
 	for index, container := range containerList {
-		var ContainerInjectVolMounts = []corev1.VolumeMount{}
+
+		var containerInjectVolMounts = []corev1.VolumeMount{}
 
 		var injectedVolMount = corev1.VolumeMount{Name:"testgrid-"+strconv.Itoa(index) , MountPath:podAnnotations[container.Name]}
 		var sidecarInjectedVolMount = corev1.VolumeMount{Name:"testgrid-"+strconv.Itoa(index) , MountPath:"opt/testgrid/"+container.Name}
-		var logvolsource = corev1.VolumeSource{EmptyDir:nil}
-		var logvolume = corev1.Volume{Name:"testgrid-"+strconv.Itoa(index), VolumeSource: logvolsource}
 
-		sideCarInjectVolMounts = append(sideCarInjectVolMounts, sidecarInjectedVolMount)
-		ContainerInjectVolMounts = append(ContainerInjectVolMounts, injectedVolMount)
-		volumes = append(volumes, logvolume)
+		var logVolSource = corev1.VolumeSource{EmptyDir: nil}
+		var logVolume = corev1.Volume{Name: "testgrid-"+strconv.Itoa(index), VolumeSource: logVolSource}
 
-		VolMountpath := "/spec/containers/"+strconv.Itoa(index)+"/volumeMounts"
-		patch = append(patch, addVolumeMount(container.VolumeMounts, ContainerInjectVolMounts, VolMountpath)...)
+		sidecarInjectVolMounts = append(sidecarInjectVolMounts, sidecarInjectedVolMount)
+		containerInjectVolMounts = append(containerInjectVolMounts, injectedVolMount)
+
+		volumes = append(volumes, logVolume)
+
+		volMountpath := "/spec/containers/"+strconv.Itoa(index)+"/volumeMounts"
+		patch = append(patch, addVolumeMount(container.VolumeMounts, containerInjectVolMounts, volMountpath)...)
+
 	}
 
+	sidecarInjectVolMounts = append(sidecarInjectVolMounts, corev1.VolumeMount{Name:"shared-plugins-logstash" , MountPath:"/usr/share/logstash/plugins/"})
+	sidecarInjectVolMounts = append(sidecarInjectVolMounts, corev1.VolumeMount{Name:"logstash-yaml" , MountPath:"/usr/share/logstash/config/logstash.yaml", SubPath: "logstash.yaml"})
+	sidecarInjectVolMounts = append(sidecarInjectVolMounts, corev1.VolumeMount{Name:"logstash-conf" , MountPath:"/usr/share/logstash/pipeline/logstash.conf", SubPath: "logstash.conf"})
+
+
+	// Add the sidecar
+	var sideCarList = []corev1.Container{};
+	var sideCar = corev1.Container{
+		Name:         "logstash-sidecar",
+		Image:        "docker.elastic.co/logstash/logstash:7.2.0",
+		Env:          sidecarConfig.Env,
+		VolumeMounts: sidecarInjectVolMounts,
+	}
+	sideCarList = append(sideCarList, sideCar)
+	patch = append(patch, addContainer(pod.Spec.Containers, sideCarList, "/spec/containers")...)
 	// Configuring the sidecar with volume Mounts
-	patch = append(patch, addContainer(pod.Spec.Containers, sidecarConfig.Containers, "/spec/containers")...)
+	//containerlen := len(pod.Spec.Containers)
+	//patch = append(patch, addVolumeMount(pod.Spec.Containers[containerlen].VolumeMounts, sidecarInjectVolMounts, "spec/containers/"+strconv.Itoa(containerlen)+"/volumeMounts")...)
+
 	// Adding volumes to container
 	patch = append(patch, addVolume(pod.Spec.Volumes, volumes, "/spec/volumes")...)
 
-	glog.Info(json.Marshal(patch));
+
 	return json.Marshal(patch)
 }
 
