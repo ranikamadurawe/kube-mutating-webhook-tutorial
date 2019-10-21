@@ -57,6 +57,7 @@ type Config struct {
 	Volumes     []corev1.Volume      `yaml:"volumes"`
 	VolumeMounts []corev1.VolumeMount `yaml:"volumeMount"`
 	Env []corev1.EnvVar     `yaml:"env"`
+	InitContainers []corev1.Container `yaml:"initcontainers"`
 }
 
 type patchOperation struct {
@@ -216,6 +217,27 @@ func addVolume(target, added []corev1.Volume, basePath string) (patch []patchOpe
 	return patch
 }
 
+func addInitContainer(target, added []corev1.Container, basePath string) (patch []patchOperation) {
+	first := len(target) == 0
+	var value interface{}
+	for _, add := range added {
+		value = add
+		path := basePath
+		if first {
+			first = false
+			value = []corev1.Container{add}
+		} else {
+			path = path + "/-"
+		}
+		patch = append(patch, patchOperation {
+			Op:    "add",
+			Path:  path,
+			Value: value,
+		})
+	}
+	return patch
+}
+
 func updateAnnotation(target map[string]string, added map[string]string) (patch []patchOperation) {
 	for key, value := range added {
 		if target == nil || target[key] == "" {
@@ -239,22 +261,53 @@ func updateAnnotation(target map[string]string, added map[string]string) (patch 
 }
 
 // create mutation patch for resoures
-func createPatch(pod *corev1.Pod, sidecarConfig *Config, annotations map[string]string) ([]byte, error) {
+func createPatch(pod *corev1.Pod, sidecarConfig *Config, annotations map[string]string , podAnnotations map[string]string) ([]byte, error) {
+
 	var patch []patchOperation
 
 	var containerList = pod.Spec.Containers;
+
+	// Adding the environment variables to each container
 	for index, container := range containerList {
-		VolMountpath := "/spec/containers/"+strconv.Itoa(index)+"/volumeMounts"
 		Envpath := "/spec/containers/"+strconv.Itoa(index)+"/env"
-		patch = append(patch, addVolumeMount(container.VolumeMounts, sidecarConfig.VolumeMounts, VolMountpath)...)
 		patch = append(patch, addEnvVar(container.Env, sidecarConfig.Env, Envpath)...)
 	}
 
-    // TODO : Container not needed if using Dameon set Configration
-	patch = append(patch, addContainer(pod.Spec.Containers, sidecarConfig.Containers, "/spec/containers")...)
+	// Adding the init containers
+	patch = append(patch, addInitContainer(pod.Spec.InitContainers, sidecarConfig.InitContainers, "/spec/initContainers")...)
+
+	// Adding the fixed volumes to each container
 	patch = append(patch, addVolume(pod.Spec.Volumes, sidecarConfig.Volumes, "/spec/volumes")...)
+
+	// Adding annotations
 	patch = append(patch, updateAnnotation(pod.Annotations, annotations)...)
 
+
+	// Adding volume Mounts to containers
+	var sideCarInjectVolMounts = []corev1.VolumeMount{}
+	var volumes = []corev1.Volume{}
+	for index, container := range containerList {
+		var ContainerInjectVolMounts = []corev1.VolumeMount{}
+
+		var injectedVolMount = corev1.VolumeMount{Name:"testgrid-"+strconv.Itoa(index) , MountPath:podAnnotations[container.Name]}
+		var sidecarInjectedVolMount = corev1.VolumeMount{Name:"testgrid-"+strconv.Itoa(index) , MountPath:"opt/testgrid/"+container.Name}
+		var logvolsource = corev1.VolumeSource{EmptyDir:nil}
+		var logvolume = corev1.Volume{Name:"testgrid-"+strconv.Itoa(index), VolumeSource: logvolsource}
+
+		sideCarInjectVolMounts = append(sideCarInjectVolMounts, sidecarInjectedVolMount)
+		ContainerInjectVolMounts = append(ContainerInjectVolMounts, injectedVolMount)
+		volumes = append(volumes, logvolume)
+
+		VolMountpath := "/spec/containers/"+strconv.Itoa(index)+"/volumeMounts"
+		patch = append(patch, addVolumeMount(container.VolumeMounts, ContainerInjectVolMounts, VolMountpath)...)
+	}
+
+	// Configuring the sidecar with volume Mounts
+	patch = append(patch, addContainer(pod.Spec.Containers, sidecarConfig.Containers, "/spec/containers")...)
+	// Adding volumes to container
+	patch = append(patch, addVolume(pod.Spec.Volumes, volumes, "/spec/volumes")...)
+
+	glog.Info(json.Marshal(patch));
 	return json.Marshal(patch)
 }
 
@@ -282,10 +335,12 @@ func (whsvr *WebhookServer) mutate(ar *v1beta1.AdmissionReview) *v1beta1.Admissi
 		}
 	}
 
+	metaData := pod.ObjectMeta.Annotations
+	glog.Info(metaData);
 	// Workaround: https://github.com/kubernetes/kubernetes/issues/57982
 	applyDefaultsWorkaround(whsvr.sidecarConfig.Containers, whsvr.sidecarConfig.Volumes)
 	annotations := map[string]string{admissionWebhookAnnotationStatusKey: "injected"}
-	patchBytes, err := createPatch(&pod, whsvr.sidecarConfig, annotations)
+	patchBytes, err := createPatch(&pod, whsvr.sidecarConfig, annotations, metaData)
 	if err != nil {
 		return &v1beta1.AdmissionResponse {
 			Result: &metav1.Status {
