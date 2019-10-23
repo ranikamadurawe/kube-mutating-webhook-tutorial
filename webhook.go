@@ -313,6 +313,7 @@ func createPatch(pod *corev1.Pod, sidecarConfig *Config, annotations map[string]
 	sidecarInjectVolMounts = append(sidecarInjectVolMounts, corev1.VolumeMount{Name:"logstash-conf" , MountPath:"/usr/share/logstash/pipeline/logstash.conf", SubPath: "logstash.conf"})
 
 
+
 	// Add the sidecar
 	var sideCarList = []corev1.Container{};
 	var sideCar = corev1.Container{

@@ -16,7 +16,67 @@ metadata:
   name: logstash-conf
 data:
   logstash.conf: |
-    http.host: "0.0.0.0"
-    path.config: /usr/share/logstash/pipeline
-    log.level: debug
-    path.logs: /usr/share/logstash/log
+    # Copyright (c) 2019, WSO2 Inc. (http://www.wso2.org) All Rights Reserved.
+    #
+    # Licensed under the Apache License, Version 2.0 (the "License");
+    # you may not use this file except in compliance with the License.
+    # You may obtain a copy of the License at
+    #
+    # http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing, software
+    # distributed under the License is distributed on an "AS IS" BASIS,
+    # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    # See the License for the specific language governing permissions and
+    # limitations under the License.
+
+      input {
+      file {
+      sincedb_path => "/opt/testgrid/sincedb"
+      start_position => "beginning"
+      add_field => {
+      instance_name => "${NODE_ID}"
+      instance_IP => "${NODE_IP}"
+      namespace => "${NAMESPACE}"
+      }
+      type => "LogFile"
+      path => [ '/opt/testgrid/**/*.log' ]
+      codec => multiline {
+      pattern => "^\[%{TIMESTAMP_ISO8601:timestamp}\]"
+      negate => true
+      what => "previous"
+      }
+      }
+    }
+
+      filter {
+      if [type] == "LogFile" {
+      grok {
+      match => ["path", "opt/testgrid/%{WORD:CONTAINER}/%{NOTSPACE:FILE}"]
+      add_field => { "file" => "%{FILE}" }
+      add_field => { "CONTAINER" => "%{CONTAINER}" }
+      }
+      if [file] == "wso2carbon.log" {
+      grok {
+      match => [ "message", "\[%{TIMESTAMP_ISO8601:timestamp}\]%{SPACE}\[%{INT:tenant_id}\]%{SPACE}\[\]%{SPACE}\[%{GREEDYDATA:timestamp}\]%{SPACE}%{LOGLEVEL:level}%{SPACE}{%{JAVACLASS:java_class}}%{SPACE}-%{SPACE}%{JAVALOGMESSAGE:log_message}" ]
+      tag_on_failure => ["failed-to-parse"]
+      }
+      }
+      } else {
+      tag_on_failure => ["UNKNOWN FILE TYPE"]
+      grok {
+      match => ["path", "opt/testgrid/%{WORD:CONTAINER}/%{NOTSPACE:file}"]
+      add_field => { "file" => "%{FILE}" }
+      add_field => { "CONTAINER" => "%{CONTAINER}" }
+      }
+      }
+    }
+
+      output {
+      elasticsearch {
+      hosts => "${ELASTICSEARCH_HOST}"
+      user => "${ELASTICSEARCH_USERNAME}"
+      password => "${ELASTICSEARCH_PASSWORD}"
+      index => "${POD_NAME}-%{CONTAINER}-${POD_IP}-%{+YYYY.MM.dd}"
+      }
+    }
