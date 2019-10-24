@@ -309,10 +309,9 @@ func createPatch(pod *corev1.Pod, sidecarConfig *Config, annotations map[string]
 	}
 
 	sidecarInjectVolMounts = append(sidecarInjectVolMounts, corev1.VolumeMount{Name:"shared-plugins-logstash" , MountPath:"/usr/share/logstash/plugins/"})
-	sidecarInjectVolMounts = append(sidecarInjectVolMounts, corev1.VolumeMount{Name:"logstash-yaml" , MountPath:"/usr/share/logstash/config/logstash.yaml", SubPath: "logstash.yaml"})
+	sidecarInjectVolMounts = append(sidecarInjectVolMounts, corev1.VolumeMount{Name:"logstash-yaml" , MountPath:"/usr/share/logstash/config/logstash.yml", SubPath: "logstash.yml", ReadOnly:false })
 	sidecarInjectVolMounts = append(sidecarInjectVolMounts, corev1.VolumeMount{Name:"logstash-conf" , MountPath:"/usr/share/logstash/pipeline/logstash.conf", SubPath: "logstash.conf"})
-
-
+	sidecarInjectVolMounts = append(sidecarInjectVolMounts, corev1.VolumeMount{Name:"sincedb-mount", MountPath:"/opt/testgrid/sincedb", SubPath:"sincedb", ReadOnly:false})
 
 	// Add the sidecar
 	var sideCarList = []corev1.Container{};

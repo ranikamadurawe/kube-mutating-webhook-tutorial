@@ -16,6 +16,20 @@ data:
         volumeMounts:
           - name: shared-plugins-logstash
             mountPath: /usr/share/logstash/plugins/
+      - name: copy-ro-scripts
+        image: busybox
+        command: ['sh', '-c']
+        args: ['cp /scripts/logstash.yml /etc/pre-install/logstash.yml; chown 1000 /etc/pre-install/logstash.yml; echo "" >> etc/pre-sincedb/sincedb ; chown 1000 /etc/pre-sincedb/sincedb ']
+        securityContext:
+            runAsUser: 0
+        volumeMounts:
+          - name: scripts
+            mountPath: /scripts/logstash.yml
+            subPath: logstash.yml
+          - name: logstash-yaml
+            mountPath: /etc/pre-install
+          - name: sincedb-mount
+            mountPath: /etc/pre-sincedb
     containers:
       - name: logstash-sidecar
         image: docker.elastic.co/logstash/logstash:7.2.0
@@ -23,11 +37,13 @@ data:
           - name: shared-plugins-logstash
             mountPath: /usr/share/logstash/plugins/
           - name: logstash-yaml
-            mountPath: /usr/share/logstash/config/logstash.yaml
-            subPath: logstash.yaml
+            mountPath: /usr/share/logstash/config/
           - name: logstash-conf
             mountPath: /usr/share/logstash/pipeline/logstash.conf
             subPath: logstash.conf
+          - name: sincedb-mount
+            mountPath: /opt/testgrid/sincedb
+            subPath: sincedb
         env:
           - name: NODE_NAME
             valueFrom:
@@ -50,12 +66,16 @@ data:
     volumes:
       - name: shared-plugins-logstash
         emptyDir: {}
-      - name: logstash-yaml
+      - name: scripts
         configMap:
           name: logstash-yaml
+      - name: logstash-yaml
+        emptyDir: {}
       - name: logstash-conf
         configMap:
           name: logstash-conf
+      - name: sincedb-mount
+        emptyDir: {}
     env:
       - name: NODE_NAME
         valueFrom:
