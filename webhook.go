@@ -37,10 +37,12 @@ var ignoredNamespaces = []string {
 const (
 	admissionWebhookAnnotationInjectKey = "sidecar-injector-webhook.morven.me/inject"
 	admissionWebhookAnnotationStatusKey = "sidecar-injector-webhook.morven.me/status"
+	standardTestGridLoc = "opt/testgrid/"
 )
 
 type WebhookServer struct {
 	sidecarConfig    *Config
+	logPathConfig    *logConfigs
 	server           *http.Server
 }
 
@@ -50,6 +52,17 @@ type WhSvrParameters struct {
 	certFile string          // path to the x509 certificate for https
 	keyFile string           // path to the x509 private key matching `CertFile`
 	sidecarCfgFile string    // path to sidecar injector configuration file
+	logPathConfigFile string
+}
+
+type logConfig struct {
+	Name string  `yaml:"name"`
+	Path string  `yaml:"path"`
+}
+
+type logConfigs struct {
+	Loglocs []logConfig   `yaml:"loglocs"`
+	Onlyes string      `yaml:"onlyes"`
 }
 
 type Config struct {
@@ -84,6 +97,21 @@ func applyDefaultsWorkaround(containers []corev1.Container, volumes []corev1.Vol
 	})
 }
 
+func loadLogPaths(logPathconfigFile string) (*logConfigs, error){
+	yamlFile, err := ioutil.ReadFile(logPathconfigFile)
+	glog.Infof(strconv.Itoa(len(yamlFile)))
+	if err != nil {
+		return nil, err
+	}
+
+	var logConfs logConfigs
+	if err := yaml.Unmarshal(yamlFile, &logConfs); err != nil{
+		return nil,err
+	}
+
+	return &logConfs, nil
+}
+
 func loadConfig(configFile string) (*Config, error) {
 	data, err := ioutil.ReadFile(configFile)
 	if err != nil {
@@ -98,6 +126,7 @@ func loadConfig(configFile string) (*Config, error) {
 
 	return &cfg, nil
 }
+
 
 // Check whether the target resoured need to be mutated
 func mutationRequired(ignoredList []string, metadata *metav1.ObjectMeta) bool {
@@ -129,7 +158,8 @@ func mutationRequired(ignoredList []string, metadata *metav1.ObjectMeta) bool {
 		}
 	}
 
-	glog.Infof("Mutation policy for %v/%v: status: %q required:%v", metadata.Namespace, metadata.Name, status, required)
+	glog.Infof("Mutation policy for %v/%v: status: %q required:%v", metadata.Namespace, metadata.Name, status,
+		required)
 	return required
 }
 
@@ -262,11 +292,18 @@ func updateAnnotation(target map[string]string, added map[string]string) (patch 
 }
 
 // create mutation patch for resoures
-func createPatch(pod *corev1.Pod, sidecarConfig *Config, annotations map[string]string , podAnnotations map[string]string) ([]byte, error) {
+func createPatch(pod *corev1.Pod, sidecarConfig *Config, annotations map[string]string ,
+	podAnnotations map[string]string) ([]byte, error) {
 
 	var patch []patchOperation
 
 	var containerList = pod.Spec.Containers;
+
+	var podRandomName = pod.GenerateName
+	var podHash = "-" + pod.Labels["pod-template-hash"] + "-"
+	var depName = strings.Replace(podRandomName, podHash, "",1)
+
+	glog.Infof(depName)
 
 	// Adding the environment variables to each container
 	for index, container := range containerList {
@@ -275,7 +312,8 @@ func createPatch(pod *corev1.Pod, sidecarConfig *Config, annotations map[string]
 	}
 
 	// Adding the init containers
-	patch = append(patch, addInitContainer(pod.Spec.InitContainers, sidecarConfig.InitContainers, "/spec/initContainers")...)
+	patch = append(patch, addInitContainer(pod.Spec.InitContainers,
+		sidecarConfig.InitContainers, "/spec/initContainers")...)
 
 	// Adding the fixed volumes to each container
 	patch = append(patch, addVolume(pod.Spec.Volumes, sidecarConfig.Volumes, "/spec/volumes")...)
@@ -292,8 +330,10 @@ func createPatch(pod *corev1.Pod, sidecarConfig *Config, annotations map[string]
 
 		var containerInjectVolMounts = []corev1.VolumeMount{}
 
-		var injectedVolMount = corev1.VolumeMount{Name:"testgrid-"+strconv.Itoa(index) , MountPath:podAnnotations[container.Name]}
-		var sidecarInjectedVolMount = corev1.VolumeMount{Name:"testgrid-"+strconv.Itoa(index) , MountPath:"opt/testgrid/"+container.Name}
+		var injectedVolMount = corev1.VolumeMount{Name:"testgrid-"+strconv.Itoa(index) ,
+			MountPath:podAnnotations[container.Name]}
+		var sidecarInjectedVolMount = corev1.VolumeMount{Name:"testgrid-"+strconv.Itoa(index) ,
+			MountPath:standardTestGridLoc+container.Name}
 
 		var logVolSource = corev1.VolumeSource{EmptyDir: nil}
 		var logVolume = corev1.Volume{Name: "testgrid-"+strconv.Itoa(index), VolumeSource: logVolSource}
@@ -308,10 +348,14 @@ func createPatch(pod *corev1.Pod, sidecarConfig *Config, annotations map[string]
 
 	}
 
-	sidecarInjectVolMounts = append(sidecarInjectVolMounts, corev1.VolumeMount{Name:"shared-plugins-logstash" , MountPath:"/usr/share/logstash/plugins/"})
-	sidecarInjectVolMounts = append(sidecarInjectVolMounts, corev1.VolumeMount{Name:"logstash-yaml" , MountPath:"/usr/share/logstash/config/logstash.yml", SubPath: "logstash.yml", ReadOnly:false })
-	sidecarInjectVolMounts = append(sidecarInjectVolMounts, corev1.VolumeMount{Name:"logstash-conf" , MountPath:"/usr/share/logstash/pipeline/logstash.conf", SubPath: "logstash.conf"})
-	sidecarInjectVolMounts = append(sidecarInjectVolMounts, corev1.VolumeMount{Name:"sincedb-mount", MountPath:"/opt/testgrid/sincedb", SubPath:"sincedb", ReadOnly:false})
+	sidecarInjectVolMounts = append(sidecarInjectVolMounts, corev1.VolumeMount{Name:"shared-plugins-logstash" ,
+		MountPath:"/usr/share/logstash/plugins/"})
+	sidecarInjectVolMounts = append(sidecarInjectVolMounts, corev1.VolumeMount{Name:"logstash-yaml" ,
+		MountPath:"/usr/share/logstash/config/logstash.yml", SubPath: "logstash.yml", ReadOnly:false })
+	sidecarInjectVolMounts = append(sidecarInjectVolMounts, corev1.VolumeMount{Name:"logstash-conf" ,
+		MountPath:"/usr/share/logstash/pipeline/logstash.conf", SubPath: "logstash.conf"})
+	sidecarInjectVolMounts = append(sidecarInjectVolMounts, corev1.VolumeMount{Name:"sincedb-mount",
+		MountPath:standardTestGridLoc+"sincedb", SubPath:"sincedb", ReadOnly:false})
 
 	// Add the sidecar
 	var sideCarList = []corev1.Container{};
@@ -324,18 +368,16 @@ func createPatch(pod *corev1.Pod, sidecarConfig *Config, annotations map[string]
 	sideCarList = append(sideCarList, sideCar)
 	patch = append(patch, addContainer(pod.Spec.Containers, sideCarList, "/spec/containers")...)
 	// Configuring the sidecar with volume Mounts
-	//containerlen := len(pod.Spec.Containers)
-	//patch = append(patch, addVolumeMount(pod.Spec.Containers[containerlen].VolumeMounts, sidecarInjectVolMounts, "spec/containers/"+strconv.Itoa(containerlen)+"/volumeMounts")...)
 
 	// Adding volumes to container
 	patch = append(patch, addVolume(pod.Spec.Volumes, volumes, "/spec/volumes")...)
-
 
 	return json.Marshal(patch)
 }
 
 // main mutation process
 func (whsvr *WebhookServer) mutate(ar *v1beta1.AdmissionReview) *v1beta1.AdmissionResponse {
+	glog.Info(whsvr.logPathConfig)
 	req := ar.Request
 	var pod corev1.Pod
 	if err := json.Unmarshal(req.Object.Raw, &pod); err != nil {
