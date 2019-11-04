@@ -127,9 +127,17 @@ func loadConfig(configFile string) (*Config, error) {
 	return &cfg, nil
 }
 
-
+func checkLogpathConfs(depname string, logConfs *logConfigs) bool{
+	for _, logLoc := range  logConfs.Loglocs {
+		if strings.Contains(logLoc.Name,depname) {
+			glog.Infof("required in deployment and container pair ", logLoc.Name)
+			return true
+		}
+	}
+	return false
+}
 // Check whether the target resoured need to be mutated
-func mutationRequired(ignoredList []string, metadata *metav1.ObjectMeta) bool {
+func mutationRequired(ignoredList []string, metadata *metav1.ObjectMeta, depname string, logConfs *logConfigs) bool {
 	// skip special kubernete system namespaces
 	for _, namespace := range ignoredList {
 		if metadata.Namespace == namespace {
@@ -150,12 +158,7 @@ func mutationRequired(ignoredList []string, metadata *metav1.ObjectMeta) bool {
 	if strings.ToLower(status) == "injected" {
 		required = false;
 	} else {
-		switch strings.ToLower(annotations[admissionWebhookAnnotationInjectKey]) {
-		default:
-			required = false
-		case "y", "yes", "true", "on":
-			required = true
-		}
+		required = checkLogpathConfs(depname, logConfs)
 	}
 
 	glog.Infof("Mutation policy for %v/%v: status: %q required:%v", metadata.Namespace, metadata.Name, status,
@@ -291,9 +294,19 @@ func updateAnnotation(target map[string]string, added map[string]string) (patch 
 	return patch
 }
 
+func findLogPath(key string, logConfs *logConfigs ) (path string) {
+	for _, logLoc := range  logConfs.Loglocs {
+		glog.Infof(logLoc.Name, key)
+		if logLoc.Name == key {
+			return logLoc.Path
+		}
+	}
+	glog.Info("No path found for ",key,"using default")
+	return "/opt/testgrid/logs"
+}
+
 // create mutation patch for resoures
-func createPatch(pod *corev1.Pod, sidecarConfig *Config, annotations map[string]string ,
-	podAnnotations map[string]string) ([]byte, error) {
+func createPatch(pod *corev1.Pod, sidecarConfig *Config, annotations map[string]string, logConfs *logConfigs ) ([]byte, error) {
 
 	var patch []patchOperation
 
@@ -303,7 +316,7 @@ func createPatch(pod *corev1.Pod, sidecarConfig *Config, annotations map[string]
 	var podHash = "-" + pod.Labels["pod-template-hash"] + "-"
 	var depName = strings.Replace(podRandomName, podHash, "",1)
 
-	glog.Infof(depName)
+
 
 	// Adding the environment variables to each container
 	for index, container := range containerList {
@@ -329,9 +342,10 @@ func createPatch(pod *corev1.Pod, sidecarConfig *Config, annotations map[string]
 	for index, container := range containerList {
 
 		var containerInjectVolMounts = []corev1.VolumeMount{}
-
+		var logPathKey = depName + "-" + container.Name
+		var logPath = findLogPath(logPathKey, logConfs)
 		var injectedVolMount = corev1.VolumeMount{Name:"testgrid-"+strconv.Itoa(index) ,
-			MountPath:podAnnotations[container.Name]}
+			MountPath: logPath}
 		var sidecarInjectedVolMount = corev1.VolumeMount{Name:"testgrid-"+strconv.Itoa(index) ,
 			MountPath:standardTestGridLoc+container.Name}
 
@@ -393,19 +407,20 @@ func (whsvr *WebhookServer) mutate(ar *v1beta1.AdmissionReview) *v1beta1.Admissi
 		req.Kind, req.Namespace, req.Name, pod.Name, req.UID, req.Operation, req.UserInfo)
 
 	// determine whether to perform mutation
-	if !mutationRequired(ignoredNamespaces, &pod.ObjectMeta) {
+	var podRandomName = pod.GenerateName
+	var podHash = "-" + pod.Labels["pod-template-hash"] + "-"
+	var depName = strings.Replace(podRandomName, podHash, "",1)
+	if !mutationRequired(ignoredNamespaces, &pod.ObjectMeta, depName,whsvr.logPathConfig) {
 		glog.Infof("Skipping mutation for %s/%s due to policy check", pod.Namespace, pod.Name)
 		return &v1beta1.AdmissionResponse {
 			Allowed: true,
 		}
 	}
 
-	metaData := pod.ObjectMeta.Annotations
-	glog.Info(metaData);
 	// Workaround: https://github.com/kubernetes/kubernetes/issues/57982
 	applyDefaultsWorkaround(whsvr.sidecarConfig.Containers, whsvr.sidecarConfig.Volumes)
 	annotations := map[string]string{admissionWebhookAnnotationStatusKey: "injected"}
-	patchBytes, err := createPatch(&pod, whsvr.sidecarConfig, annotations, metaData)
+	patchBytes, err := createPatch(&pod, whsvr.sidecarConfig, annotations, whsvr.logPathConfig)
 	if err != nil {
 		return &v1beta1.AdmissionResponse {
 			Result: &metav1.Status {
