@@ -35,9 +35,9 @@ var ignoredNamespaces = []string {
 }
 
 const (
-	admissionWebhookAnnotationInjectKey = "sidecar-injector-webhook.morven.me/inject"
 	admissionWebhookAnnotationStatusKey = "sidecar-injector-webhook.morven.me/status"
 	standardTestGridLoc = "opt/testgrid/"
+	esEndPoint = "testgridLoc"
 )
 
 type WebhookServer struct {
@@ -63,6 +63,7 @@ type logConfig struct {
 type logConfigs struct {
 	Loglocs []logConfig   `yaml:"loglocs"`
 	Onlyes string      `yaml:"onlyes"`
+	Esenvvarname string   `yaml:"esenvvarname"`
 }
 
 type Config struct {
@@ -136,6 +137,13 @@ func checkLogpathConfs(depname string, logConfs *logConfigs) bool{
 	}
 	return false
 }
+
+func checkESRequirement(logConf *logConfigs) bool{
+	if logConf.Onlyes == "true" {
+		return true
+	}
+	return false
+}
 // Check whether the target resoured need to be mutated
 func mutationRequired(ignoredList []string, metadata *metav1.ObjectMeta, depname string, logConfs *logConfigs) bool {
 	// skip special kubernete system namespaces
@@ -156,9 +164,9 @@ func mutationRequired(ignoredList []string, metadata *metav1.ObjectMeta, depname
 	// determine whether to perform mutation based on annotation for the target resource
 	var required bool
 	if strings.ToLower(status) == "injected" {
-		required = false;
+		required = false
 	} else {
-		required = checkLogpathConfs(depname, logConfs)
+		required = checkLogpathConfs(depname, logConfs) || checkESRequirement(logConfs)
 	}
 
 	glog.Infof("Mutation policy for %v/%v: status: %q required:%v", metadata.Namespace, metadata.Name, status,
@@ -307,84 +315,94 @@ func findLogPath(key string, logConfs *logConfigs ) (path string) {
 
 // create mutation patch for resoures
 func createPatch(pod *corev1.Pod, sidecarConfig *Config, annotations map[string]string, logConfs *logConfigs ) ([]byte, error) {
-
 	var patch []patchOperation
+	var containerList = pod.Spec.Containers
+	if logConfs.Onlyes == "true" {
 
-	var containerList = pod.Spec.Containers;
+		for index, container := range containerList {
+			Envpath := "/spec/containers/"+strconv.Itoa(index)+"/env"
+			var esVar = corev1.EnvVar{Name: logConfs.Esenvvarname, Value: esEndPoint  }
+			var envVars = []corev1.EnvVar{}
+			envVars = append(envVars, esVar)
 
-	var podRandomName = pod.GenerateName
-	var podHash = "-" + pod.Labels["pod-template-hash"] + "-"
-	var depName = strings.Replace(podRandomName, podHash, "",1)
+			patch = append(patch, addEnvVar(container.Env, envVars, Envpath)...)
+		}
+
+	} else {
+
+		var podRandomName = pod.GenerateName
+		var podHash = "-" + pod.Labels["pod-template-hash"] + "-"
+		var depName = strings.Replace(podRandomName, podHash, "",1)
+
+		// Adding the environment variables to each container
+		for index, container := range containerList {
+			Envpath := "/spec/containers/"+strconv.Itoa(index)+"/env"
+			patch = append(patch, addEnvVar(container.Env, sidecarConfig.Env, Envpath)...)
+		}
+
+		// Adding the init containers
+		patch = append(patch, addInitContainer(pod.Spec.InitContainers,
+			sidecarConfig.InitContainers, "/spec/initContainers")...)
+
+		// Adding the fixed volumes to each container
+		patch = append(patch, addVolume(pod.Spec.Volumes, sidecarConfig.Volumes, "/spec/volumes")...)
+
+		// Adding annotations
+		patch = append(patch, updateAnnotation(pod.Annotations, annotations)...)
 
 
+		// Adding volume Mounts to containers
+		var sidecarInjectVolMounts = []corev1.VolumeMount{}
+		var volumes = []corev1.Volume{}
 
-	// Adding the environment variables to each container
-	for index, container := range containerList {
-		Envpath := "/spec/containers/"+strconv.Itoa(index)+"/env"
-		patch = append(patch, addEnvVar(container.Env, sidecarConfig.Env, Envpath)...)
+		for index, container := range containerList {
+
+			var containerInjectVolMounts = []corev1.VolumeMount{}
+			var logPathKey = depName + "-" + container.Name
+			var logPath = findLogPath(logPathKey, logConfs)
+			var injectedVolMount = corev1.VolumeMount{Name:"testgrid-"+strconv.Itoa(index) ,
+				MountPath: logPath}
+			var sidecarInjectedVolMount = corev1.VolumeMount{Name:"testgrid-"+strconv.Itoa(index) ,
+				MountPath:standardTestGridLoc+container.Name}
+
+			var logVolSource = corev1.VolumeSource{EmptyDir: nil}
+			var logVolume = corev1.Volume{Name: "testgrid-"+strconv.Itoa(index), VolumeSource: logVolSource}
+
+			sidecarInjectVolMounts = append(sidecarInjectVolMounts, sidecarInjectedVolMount)
+			containerInjectVolMounts = append(containerInjectVolMounts, injectedVolMount)
+
+			volumes = append(volumes, logVolume)
+
+			volMountpath := "/spec/containers/"+strconv.Itoa(index)+"/volumeMounts"
+			patch = append(patch, addVolumeMount(container.VolumeMounts, containerInjectVolMounts, volMountpath)...)
+
+		}
+
+		sidecarInjectVolMounts = append(sidecarInjectVolMounts, corev1.VolumeMount{Name:"shared-plugins-logstash" ,
+			MountPath:"/usr/share/logstash/plugins/"})
+		sidecarInjectVolMounts = append(sidecarInjectVolMounts, corev1.VolumeMount{Name:"logstash-yaml" ,
+			MountPath:"/usr/share/logstash/config/logstash.yml", SubPath: "logstash.yml", ReadOnly:false })
+		sidecarInjectVolMounts = append(sidecarInjectVolMounts, corev1.VolumeMount{Name:"logstash-conf" ,
+			MountPath:"/usr/share/logstash/pipeline/logstash.conf", SubPath: "logstash.conf"})
+		sidecarInjectVolMounts = append(sidecarInjectVolMounts, corev1.VolumeMount{Name:"sincedb-mount",
+			MountPath:standardTestGridLoc+"sincedb", SubPath:"sincedb", ReadOnly:false})
+
+		// Add the sidecar
+		var sideCarList = []corev1.Container{}
+		var sideCar = corev1.Container{
+			Name:         "logstash-sidecar",
+			Image:        "docker.elastic.co/logstash/logstash:7.2.0",
+			Env:          sidecarConfig.Env,
+			VolumeMounts: sidecarInjectVolMounts,
+		}
+		sideCarList = append(sideCarList, sideCar)
+		patch = append(patch, addContainer(pod.Spec.Containers, sideCarList, "/spec/containers")...)
+		// Configuring the sidecar with volume Mounts
+
+		// Adding volumes to container
+		patch = append(patch, addVolume(pod.Spec.Volumes, volumes, "/spec/volumes")...)
 	}
 
-	// Adding the init containers
-	patch = append(patch, addInitContainer(pod.Spec.InitContainers,
-		sidecarConfig.InitContainers, "/spec/initContainers")...)
-
-	// Adding the fixed volumes to each container
-	patch = append(patch, addVolume(pod.Spec.Volumes, sidecarConfig.Volumes, "/spec/volumes")...)
-
-	// Adding annotations
-	patch = append(patch, updateAnnotation(pod.Annotations, annotations)...)
-
-
-	// Adding volume Mounts to containers
-	var sidecarInjectVolMounts = []corev1.VolumeMount{}
-	var volumes = []corev1.Volume{}
-
-	for index, container := range containerList {
-
-		var containerInjectVolMounts = []corev1.VolumeMount{}
-		var logPathKey = depName + "-" + container.Name
-		var logPath = findLogPath(logPathKey, logConfs)
-		var injectedVolMount = corev1.VolumeMount{Name:"testgrid-"+strconv.Itoa(index) ,
-			MountPath: logPath}
-		var sidecarInjectedVolMount = corev1.VolumeMount{Name:"testgrid-"+strconv.Itoa(index) ,
-			MountPath:standardTestGridLoc+container.Name}
-
-		var logVolSource = corev1.VolumeSource{EmptyDir: nil}
-		var logVolume = corev1.Volume{Name: "testgrid-"+strconv.Itoa(index), VolumeSource: logVolSource}
-
-		sidecarInjectVolMounts = append(sidecarInjectVolMounts, sidecarInjectedVolMount)
-		containerInjectVolMounts = append(containerInjectVolMounts, injectedVolMount)
-
-		volumes = append(volumes, logVolume)
-
-		volMountpath := "/spec/containers/"+strconv.Itoa(index)+"/volumeMounts"
-		patch = append(patch, addVolumeMount(container.VolumeMounts, containerInjectVolMounts, volMountpath)...)
-
-	}
-
-	sidecarInjectVolMounts = append(sidecarInjectVolMounts, corev1.VolumeMount{Name:"shared-plugins-logstash" ,
-		MountPath:"/usr/share/logstash/plugins/"})
-	sidecarInjectVolMounts = append(sidecarInjectVolMounts, corev1.VolumeMount{Name:"logstash-yaml" ,
-		MountPath:"/usr/share/logstash/config/logstash.yml", SubPath: "logstash.yml", ReadOnly:false })
-	sidecarInjectVolMounts = append(sidecarInjectVolMounts, corev1.VolumeMount{Name:"logstash-conf" ,
-		MountPath:"/usr/share/logstash/pipeline/logstash.conf", SubPath: "logstash.conf"})
-	sidecarInjectVolMounts = append(sidecarInjectVolMounts, corev1.VolumeMount{Name:"sincedb-mount",
-		MountPath:standardTestGridLoc+"sincedb", SubPath:"sincedb", ReadOnly:false})
-
-	// Add the sidecar
-	var sideCarList = []corev1.Container{};
-	var sideCar = corev1.Container{
-		Name:         "logstash-sidecar",
-		Image:        "docker.elastic.co/logstash/logstash:7.2.0",
-		Env:          sidecarConfig.Env,
-		VolumeMounts: sidecarInjectVolMounts,
-	}
-	sideCarList = append(sideCarList, sideCar)
-	patch = append(patch, addContainer(pod.Spec.Containers, sideCarList, "/spec/containers")...)
-	// Configuring the sidecar with volume Mounts
-
-	// Adding volumes to container
-	patch = append(patch, addVolume(pod.Spec.Volumes, volumes, "/spec/volumes")...)
 
 	return json.Marshal(patch)
 }
