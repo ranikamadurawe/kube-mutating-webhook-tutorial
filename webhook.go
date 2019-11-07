@@ -378,20 +378,14 @@ func createPatch(pod *corev1.Pod, sidecarConfig *Config, annotations map[string]
 
 		}
 
-		sidecarInjectVolMounts = append(sidecarInjectVolMounts, corev1.VolumeMount{Name:"shared-plugins-logstash" ,
-			MountPath:"/usr/share/logstash/plugins/"})
-		sidecarInjectVolMounts = append(sidecarInjectVolMounts, corev1.VolumeMount{Name:"logstash-yaml" ,
-			MountPath:"/usr/share/logstash/config/logstash.yml", SubPath: "logstash.yml", ReadOnly:false })
-		sidecarInjectVolMounts = append(sidecarInjectVolMounts, corev1.VolumeMount{Name:"logstash-conf" ,
-			MountPath:"/usr/share/logstash/pipeline/logstash.conf", SubPath: "logstash.conf"})
-		sidecarInjectVolMounts = append(sidecarInjectVolMounts, corev1.VolumeMount{Name:"sincedb-mount",
-			MountPath:standardTestGridLoc+"sincedb", SubPath:"sincedb", ReadOnly:false})
+		sidecarInjectVolMounts = append(sidecarInjectVolMounts, corev1.VolumeMount{Name:"filebeat-yaml" ,
+			MountPath:"/usr/share/filebeat/filebeat.yml", SubPath: "filebeat.yml", ReadOnly:false })
 
 		// Add the sidecar
 		var sideCarList = []corev1.Container{}
 		var sideCar = corev1.Container{
-			Name:         "logstash-sidecar",
-			Image:        "docker.elastic.co/logstash/logstash:7.2.0",
+			Name:         "filebeat-sidecar",
+			Image:        "docker.elastic.co/beats/filebeat:7.2.0",
 			Env:          sidecarConfig.Env,
 			VolumeMounts: sidecarInjectVolMounts,
 		}
