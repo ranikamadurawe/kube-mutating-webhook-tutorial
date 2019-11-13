@@ -37,7 +37,6 @@ var ignoredNamespaces = []string {
 const (
 	admissionWebhookAnnotationStatusKey = "sidecar-injector-webhook.morven.me/status"
 	standardTestGridLoc = "opt/testgrid/"
-	esEndPoint = "testgridLoc"
 )
 
 type WebhookServer struct {
@@ -60,10 +59,15 @@ type logConfig struct {
 	Path string  `yaml:"path"`
 }
 
+type envVar struct {
+	Name string `yaml:"name"`
+	Value string `yaml:"value"`
+}
+
 type logConfigs struct {
 	Loglocs []logConfig   `yaml:"loglocs"`
-	Onlyes string      `yaml:"onlyes"`
-	Esenvvarname string   `yaml:"esenvvarname"`
+	EnvVars []envVar      `"yaml:envvars"`
+	OnlyVars string       `"yaml:onlyvars"`
 }
 
 type Config struct {
@@ -139,7 +143,7 @@ func checkLogpathConfs(depname string, logConfs *logConfigs) bool{
 }
 
 func checkESRequirement(logConf *logConfigs) bool{
-	if logConf.Onlyes == "true" {
+	if logConf.OnlyVars == "true" {
 		return true
 	}
 	return false
@@ -317,19 +321,21 @@ func findLogPath(key string, logConfs *logConfigs ) (path string) {
 func createPatch(pod *corev1.Pod, sidecarConfig *Config, annotations map[string]string, logConfs *logConfigs ) ([]byte, error) {
 	var patch []patchOperation
 	var containerList = pod.Spec.Containers
-	if logConfs.Onlyes == "true" {
 
+	if len(containerList) > 0 {
 		for index, container := range containerList {
-			Envpath := "/spec/containers/"+strconv.Itoa(index)+"/env"
-			var esVar = corev1.EnvVar{Name: logConfs.Esenvvarname, Value: esEndPoint  }
 			var envVars = []corev1.EnvVar{}
-			envVars = append(envVars, esVar)
+			Envpath := "/spec/containers/"+strconv.Itoa(index)+"/env"
 
+			for _, envVar := range logConfs.EnvVars {
+				var esVar = corev1.EnvVar{Name: envVar.Name, Value: envVar.Value  }
+				envVars = append(envVars, esVar)
+			}
 			patch = append(patch, addEnvVar(container.Env, envVars, Envpath)...)
 		}
+	}
 
-	} else {
-
+	if logConfs.OnlyVars != "true" {
 		var podRandomName = pod.GenerateName
 		var podHash = "-" + pod.Labels["pod-template-hash"] + "-"
 		var depName = strings.Replace(podRandomName, podHash, "",1)
@@ -395,6 +401,7 @@ func createPatch(pod *corev1.Pod, sidecarConfig *Config, annotations map[string]
 
 		// Adding volumes to container
 		patch = append(patch, addVolume(pod.Spec.Volumes, volumes, "/spec/volumes")...)
+
 	}
 
 
