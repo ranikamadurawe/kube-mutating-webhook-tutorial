@@ -12,18 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-#
-# Service to expose the sidecar injector deployment to the mutating webhook configuration
-apiVersion: v1
-kind: Service
-metadata:
-  name: sidecar-injector-webhook-svc
-  labels:
-    app: sidecar-injector
-spec:
-  ports:
-  - port: 443
-    targetPort: 443
-  selector:
-    app: sidecar-injector
+
+
+S3_REGION=$1
+S3_BUCKET=$2
+S3_LOG_PATH=$3
+
+sed -e "s|\${S3_REGION}|${S3_REGION}|g" | sed -e "s|\${S3_BUCKET}|${S3_BUCKET}|g" |  sed -e "s|\${S3_LOG_PATH}|${S3_LOG_PATH}|g"
 

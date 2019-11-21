@@ -12,18 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-#
-# Service to expose the sidecar injector deployment to the mutating webhook configuration
+# Configmap for logstash yaml file
 apiVersion: v1
-kind: Service
+kind: ConfigMap
 metadata:
-  name: sidecar-injector-webhook-svc
-  labels:
-    app: sidecar-injector
-spec:
-  ports:
-  - port: 443
-    targetPort: 443
-  selector:
-    app: sidecar-injector
-
+  name: logstash-yaml
+data:
+  logstash.yml: |
+    http.host: "0.0.0.0"
+    path.config: /usr/share/logstash/pipeline
+    log.level: debug
+    path.logs: /opt/testgrid

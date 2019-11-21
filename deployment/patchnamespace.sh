@@ -12,18 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-#
-# Service to expose the sidecar injector deployment to the mutating webhook configuration
-apiVersion: v1
-kind: Service
-metadata:
-  name: sidecar-injector-webhook-svc
-  labels:
-    app: sidecar-injector
-spec:
-  ports:
-  - port: 443
-    targetPort: 443
-  selector:
-    app: sidecar-injector
 
+# Deployment namespace
+NAMESPACE=$1
+sed -e "s|\${NAMESPACE}|${NAMESPACE}|g"

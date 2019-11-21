@@ -12,18 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-#
-# Service to expose the sidecar injector deployment to the mutating webhook configuration
-apiVersion: v1
-kind: Service
-metadata:
-  name: sidecar-injector-webhook-svc
-  labels:
-    app: sidecar-injector
-spec:
-  ports:
-  - port: 443
-    targetPort: 443
-  selector:
-    app: sidecar-injector
 
+
+# elastic search endpoint
+ESEP=$1
+
+# if elastic search endpoint is in https format remove and replace with http to support logstash
+if  [[ $ESEP == https://* ]]  ;
+then :
+  oldString=https://
+  repString=http://
+  ESEP=$(echo ${ESEP/$oldString/$repString})
+elif [[ $ESEP == http:// ]] ;
+then  :
+else
+   ESEP=http://$1
+fi
+
+sed -e "s|\${ESEP}|${ESEP}|g"

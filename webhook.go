@@ -384,14 +384,16 @@ func createPatch(pod *corev1.Pod, sidecarConfig *Config, annotations map[string]
 
 		}
 
-		sidecarInjectVolMounts = append(sidecarInjectVolMounts, corev1.VolumeMount{Name:"filebeat-yaml" ,
-			MountPath:"/usr/share/filebeat/filebeat.yml", SubPath: "filebeat.yml", ReadOnly:false })
+		// Get Filebeat Sidecar From configmap
+		var filebeatSidecar = sidecarConfig.Containers[0];
+
+		sidecarInjectVolMounts = append(sidecarInjectVolMounts, filebeatSidecar.VolumeMounts ...)
 
 		// Add the sidecar
 		var sideCarList = []corev1.Container{}
 		var sideCar = corev1.Container{
-			Name:         "filebeat-sidecar",
-			Image:        "docker.elastic.co/beats/filebeat:7.2.0",
+			Name:         filebeatSidecar.Name,
+			Image:        filebeatSidecar.Image,
 			Env:          sidecarConfig.Env,
 			VolumeMounts: sidecarInjectVolMounts,
 		}

@@ -1,3 +1,19 @@
+# Copyright (c) 2019, WSO2 Inc. (http://www.wso2.org) All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Contains Injection details required by the sidecar injector deployment to add proper sidecars, volume Mounts etc
+
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -5,45 +21,27 @@ metadata:
 data:
   sidecarconfig.yaml: |
     initcontainers:
-      - name: init-logstash-plugins-install
-        image: docker.elastic.co/logstash/logstash:7.2.0
-        command:
-          - /bin/bash
-          - "-c"
-          - |
-            set -e
-            ./bin/logstash-plugin install logstash-codec-multiline logstash-filter-grok
-        volumeMounts:
-          - name: shared-plugins-logstash
-            mountPath: /usr/share/logstash/plugins/
-      - name: copy-ro-scripts
+      - name: copy-scripts
         image: busybox
         command: ['sh', '-c']
-        args: ['cp /scripts/logstash.yml /etc/pre-install/logstash.yml; chown 1000 /etc/pre-install/logstash.yml; echo "" >> etc/pre-sincedb/sincedb ; chown 1000 /etc/pre-sincedb/sincedb ']
+        args: ['cp /scripts/filebeat.yml /etc/pre-install/filebeat.yml; chown 1000 /etc/pre-install/filebeat.yml;']
         securityContext:
-            runAsUser: 0
+          runAsUser: 0
         volumeMounts:
           - name: scripts
-            mountPath: /scripts/logstash.yml
-            subPath: logstash.yml
-          - name: logstash-yaml
-            mountPath: /etc/pre-install
-          - name: sincedb-mount
-            mountPath: /etc/pre-sincedb
+            mountPath: /scripts/filebeat.yml
+            subPath: filebeat.yml
+          - name: filebeat-yaml
+            mountPath: /usr/share/filebeat/filebeat.yml
+            subPath: filebeat.yml
+            readOnly: false
     containers:
-      - name: logstash-sidecar
-        image: docker.elastic.co/logstash/logstash:7.2.0
+      - name: filebeat-sidecar
+        image: docker.elastic.co/beats/filebeat:7.2.0
         volumeMounts:
-          - name: shared-plugins-logstash
-            mountPath: /usr/share/logstash/plugins/
-          - name: logstash-yaml
-            mountPath: /usr/share/logstash/config/
-          - name: logstash-conf
-            mountPath: /usr/share/logstash/pipeline/logstash.conf
-            subPath: logstash.conf
-          - name: sincedb-mount
-            mountPath: /opt/testgrid/sincedb
-            subPath: sincedb
+          - name: filebeat-yaml
+            mountPath: /etc/filebeat.yml
+            subPath: filebeat.yml
         env:
           - name: NODE_NAME
             valueFrom:
@@ -61,20 +59,11 @@ data:
             valueFrom:
               fieldRef:
                 fieldPath: status.podIP
-          - name: ELASTICSEARCH_HOST
-            value: http://35.223.224.73:9200
     volumes:
-      - name: shared-plugins-logstash
-        emptyDir: {}
       - name: scripts
         configMap:
-          name: logstash-yaml
-      - name: logstash-yaml
-        emptyDir: {}
-      - name: logstash-conf
-        configMap:
-          name: logstash-conf
-      - name: sincedb-mount
+          name: filebeat-yaml
+      - name: filebeat-yaml
         emptyDir: {}
     env:
       - name: NODE_NAME
@@ -93,5 +82,4 @@ data:
         valueFrom:
           fieldRef:
             fieldPath: status.podIP
-      - name: ELASTICSEARCH_HOST
-        value: http://35.223.224.73:9200
+
