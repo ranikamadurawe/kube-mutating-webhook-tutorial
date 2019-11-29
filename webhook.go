@@ -65,9 +65,9 @@ type envVar struct {
 }
 
 type logConfigs struct {
-	Loglocs []logConfig   `yaml:"loglocs"`
-	EnvVars []envVar      `"yaml:envvars"`
-	OnlyVars string       `"yaml:onlyvars"`
+	Logpaths []logConfig   `yaml:"logpaths"`
+	EnvVars []envVar       `"yaml:envvars"`
+	OnlyVars string        `"yaml:onlyvars"`
 }
 
 type Config struct {
@@ -133,7 +133,7 @@ func loadConfig(configFile string) (*Config, error) {
 }
 
 func checkLogpathConfs(depname string, logConfs *logConfigs) bool{
-	for _, logLoc := range  logConfs.Loglocs {
+	for _, logLoc := range  logConfs.Logpaths {
 		if strings.Contains(logLoc.Name,depname) {
 			glog.Infof("required in deployment and container pair ", logLoc.Name)
 			return true
@@ -307,7 +307,7 @@ func updateAnnotation(target map[string]string, added map[string]string) (patch 
 }
 
 func findLogPath(key string, logConfs *logConfigs ) (path string) {
-	for _, logLoc := range  logConfs.Loglocs {
+	for _, logLoc := range  logConfs.Logpaths {
 		glog.Infof(logLoc.Name, key)
 		if logLoc.Name == key {
 			return logLoc.Path
