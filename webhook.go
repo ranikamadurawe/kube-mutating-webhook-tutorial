@@ -29,24 +29,25 @@ var (
 	defaulter = runtime.ObjectDefaulter(runtimeScheme)
 )
 
+// Ignored namespaces which include the kube-system and kube-public namespaces
 var ignoredNamespaces = []string {
 	metav1.NamespaceSystem,
 	metav1.NamespacePublic,
 }
 
 const (
-	admissionWebhookAnnotationStatusKey = "sidecar-injector-webhook.morven.me/status"
+	admissionWebhookAnnotationStatusKey = "injection/status"
 	standardTestGridLoc = "opt/testgrid/"
 )
 
-type WebhookServer struct {
-	sidecarConfig    *Config
+type mwhServer struct {
+	sidecarConfig    *injectionConfig
 	logPathConfig    *logConfigs
 	server           *http.Server
 }
 
 // Webhook Server parameters
-type WhSvrParameters struct {
+type mwhParameters struct {
 	port int                 // webhook server port
 	certFile string          // path to the x509 certificate for https
 	keyFile string           // path to the x509 private key matching `CertFile`
@@ -54,23 +55,27 @@ type WhSvrParameters struct {
 	logPathConfigFile string
 }
 
-type logConfig struct {
+// Stores deployment container name with path to extract logs from
+type logPaths struct {
 	Name string  `yaml:"name"`
 	Path string  `yaml:"path"`
 }
 
+// Stores an env variable to be injected
 type envVar struct {
 	Name string `yaml:"name"`
 	Value string `yaml:"value"`
 }
 
+// Stores the set of paths which logs need to be injected from or the env variable that need be injected
 type logConfigs struct {
-	Logpaths []logConfig   `yaml:"logpaths"`
-	EnvVars []envVar       `"yaml:envvars"`
-	OnlyVars string        `"yaml:onlyvars"`
+	Logpaths []logPaths `yaml:"logpaths"`
+	EnvVars []envVar    `"yaml:envvars"`
+	OnlyVars string     `"yaml:onlyvars"`
 }
 
-type Config struct {
+// Stores details of the information to be injected
+type injectionConfig struct {
 	Containers  []corev1.Container   `yaml:"containers"`
 	Volumes     []corev1.Volume      `yaml:"volumes"`
 	VolumeMounts []corev1.VolumeMount `yaml:"volumeMount"`
@@ -87,12 +92,13 @@ type patchOperation struct {
 func init() {
 	_ = corev1.AddToScheme(runtimeScheme)
 	_ = admissionregistrationv1beta1.AddToScheme(runtimeScheme)
-	// defaulting with webhooks:
-	// https://github.com/kubernetes/kubernetes/issues/57982
 	_ = v1.AddToScheme(runtimeScheme)
 }
 
-// (https://github.com/kubernetes/kubernetes/issues/57982)
+/**
+ *  Apply the workaround for issue created by
+ *  Issue :- (https://github.com/kubernetes/kubernetes/issues/57982)
+ */
 func applyDefaultsWorkaround(containers []corev1.Container, volumes []corev1.Volume) {
 	defaulter.Default(&corev1.Pod {
 		Spec: corev1.PodSpec {
@@ -102,6 +108,11 @@ func applyDefaultsWorkaround(containers []corev1.Container, volumes []corev1.Vol
 	})
 }
 
+/**
+ *  load path and deployment container name sets from log path config file
+ *  @param logPathconfigFile File name of the log path configuration file
+ *  @return Log Path configuration
+ */
 func loadLogPaths(logPathconfigFile string) (*logConfigs, error){
 	yamlFile, err := ioutil.ReadFile(logPathconfigFile)
 	glog.Infof(strconv.Itoa(len(yamlFile)))
@@ -117,14 +128,19 @@ func loadLogPaths(logPathconfigFile string) (*logConfigs, error){
 	return &logConfs, nil
 }
 
-func loadConfig(configFile string) (*Config, error) {
+/**
+ *  Load injection details from configuration file
+ *  @param configFile File name of the injection details configuration file
+ *  @return Injection details configuration
+ */
+func loadConfig(configFile string) (*injectionConfig, error) {
 	data, err := ioutil.ReadFile(configFile)
 	if err != nil {
 		return nil, err
 	}
 	glog.Infof("New configuration: sha256sum %x", sha256.Sum256(data))
 
-	var cfg Config
+	var cfg injectionConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
@@ -132,6 +148,12 @@ func loadConfig(configFile string) (*Config, error) {
 	return &cfg, nil
 }
 
+/**
+ *  Checks wether the dep name has any sort of container that requires log files extracted from
+ *  @param depname name of the deployment
+ *  @param logConfs Log Configuration required by the TestGrid job
+ *  @return Boolean wether deployment has containers that needed to be edited
+ */
 func checkLogpathConfs(depname string, logConfs *logConfigs) bool{
 	for _, logLoc := range  logConfs.Logpaths {
 		if strings.Contains(logLoc.Name,depname) {
@@ -142,13 +164,26 @@ func checkLogpathConfs(depname string, logConfs *logConfigs) bool{
 	return false
 }
 
-func checkESRequirement(logConf *logConfigs) bool{
+/**
+ *  Checks wether the TestGrid job only requires that Env variables be injected
+ *  @param logConfs Log Configuration required by the TestGrid job
+ *  @return Boolean wether only env variables be added
+ */
+func checkVarRequirement(logConf *logConfigs) bool{
 	if logConf.OnlyVars == "true" {
 		return true
 	}
 	return false
 }
-// Check whether the target resoured need to be mutated
+
+/**
+ *  Checks the pod needs to be mutated
+ *  @param ignoredList List of ignored namespaces
+ *  @param metadata pods meta data
+ *  @param depname Deployment name of the pod
+ *  @param logConfs Log Configuration required by the TestGrid job
+ *  @return Boolean Wether the pod needs to be mutated
+ */
 func mutationRequired(ignoredList []string, metadata *metav1.ObjectMeta, depname string, logConfs *logConfigs) bool {
 	// skip special kubernete system namespaces
 	for _, namespace := range ignoredList {
@@ -170,7 +205,7 @@ func mutationRequired(ignoredList []string, metadata *metav1.ObjectMeta, depname
 	if strings.ToLower(status) == "injected" {
 		required = false
 	} else {
-		required = checkLogpathConfs(depname, logConfs) || checkESRequirement(logConfs)
+		required = checkLogpathConfs(depname, logConfs) || checkVarRequirement(logConfs)
 	}
 
 	glog.Infof("Mutation policy for %v/%v: status: %q required:%v", metadata.Namespace, metadata.Name, status,
@@ -178,15 +213,23 @@ func mutationRequired(ignoredList []string, metadata *metav1.ObjectMeta, depname
 	return required
 }
 
-func addContainer(target, added []corev1.Container, basePath string) (patch []patchOperation) {
+/**
+ *  Adds a container to the pod spec
+ *  @param target location to which containers need to be added
+ *  @param containerList  containers to be added
+ *  @param basePath Location in target where containers need to be added
+ *
+ *  @return Go patch operation to add the container
+ */
+func addContainer(target, containerList []corev1.Container, basePath string) (patch []patchOperation) {
 	first := len(target) == 0
 	var value interface{}
-	for _, add := range added {
-		value = add
+	for _, addContainer := range containerList {
+		value = addContainer
 		path := basePath
 		if first {
 			first = false
-			value = []corev1.Container{add}
+			value = []corev1.Container{addContainer}
 		} else {
 			path = path + "/-"
 		}
@@ -199,15 +242,15 @@ func addContainer(target, added []corev1.Container, basePath string) (patch []pa
 	return patch
 }
 
-func addVolumeMount(target, added []corev1.VolumeMount, basePath string) (patch []patchOperation){
+func addVolumeMount(target, volumeMountList []corev1.VolumeMount, basePath string) (patch []patchOperation){
 	first := len(target) == 0
 	var value interface{}
-	for _, add := range added {
-		value = add
+	for _, addVolumeMount := range volumeMountList {
+		value = addVolumeMount
 		path := basePath
 		if first {
 			first = false
-			value = []corev1.VolumeMount{add}
+			value = []corev1.VolumeMount{addVolumeMount}
 		} else {
 			path = path + "/-"
 		}
@@ -220,15 +263,15 @@ func addVolumeMount(target, added []corev1.VolumeMount, basePath string) (patch 
 	return patch
 }
 
-func addEnvVar(target, added []corev1.EnvVar, basePath string) (patch []patchOperation){
+func addEnvVar(target, envVarList []corev1.EnvVar, basePath string) (patch []patchOperation){
 	first := len(target) == 0
 	var value interface{}
-	for _, add := range added {
-		value = add
+	for _, addenvVar := range envVarList {
+		value = addenvVar
 		path := basePath
 		if first {
 			first = false
-			value = []corev1.EnvVar{add}
+			value = []corev1.EnvVar{addenvVar}
 		} else {
 			path = path + "/-"
 		}
@@ -241,15 +284,15 @@ func addEnvVar(target, added []corev1.EnvVar, basePath string) (patch []patchOpe
 	return patch
 }
 
-func addVolume(target, added []corev1.Volume, basePath string) (patch []patchOperation) {
+func addVolume(target, volumeList []corev1.Volume, basePath string) (patch []patchOperation) {
 	first := len(target) == 0
 	var value interface{}
-	for _, add := range added {
-		value = add
+	for _, addVolume := range volumeList {
+		value = addVolume
 		path := basePath
 		if first {
 			first = false
-			value = []corev1.Volume{add}
+			value = []corev1.Volume{addVolume}
 		} else {
 			path = path + "/-"
 		}
@@ -263,15 +306,15 @@ func addVolume(target, added []corev1.Volume, basePath string) (patch []patchOpe
 }
 
 
-func addInitContainer(target, added []corev1.Container, basePath string) (patch []patchOperation) {
+func addInitContainer(target, initContainerList []corev1.Container, basePath string) (patch []patchOperation) {
 	first := len(target) == 0
 	var value interface{}
-	for _, add := range added {
-		value = add
+	for _, addInitContainer := range initContainerList {
+		value = addInitContainer
 		path := basePath
 		if first {
 			first = false
-			value = []corev1.Container{add}
+			value = []corev1.Container{addInitContainer}
 		} else {
 			path = path + "/-"
 		}
@@ -284,8 +327,11 @@ func addInitContainer(target, added []corev1.Container, basePath string) (patch 
 	return patch
 }
 
-func updateAnnotation(target map[string]string, added map[string]string) (patch []patchOperation) {
-	for key, value := range added {
+/**
+ *  Updates annotation in pod spec to show that Pod already has data injected to it
+ */
+func updateAnnotation(target map[string]string, annotations map[string]string) (patch []patchOperation) {
+	for key, value := range annotations {
 		if target == nil || target[key] == "" {
 			target = map[string]string{}
 			patch = append(patch, patchOperation {
@@ -306,6 +352,11 @@ func updateAnnotation(target map[string]string, added map[string]string) (patch 
 	return patch
 }
 
+/**
+ *  Finds Log Path for a deployment container name pair
+ *  @param logConfs Log Configuration required by the TestGrid job
+ *  @return String path to extract logs from the deployment name container name pair
+ */
 func findLogPath(key string, logConfs *logConfigs ) (path string) {
 	for _, logLoc := range  logConfs.Logpaths {
 		glog.Infof(logLoc.Name, key)
@@ -317,8 +368,10 @@ func findLogPath(key string, logConfs *logConfigs ) (path string) {
 	return "/opt/testgrid/logs"
 }
 
-// create mutation patch for resoures
-func createPatch(pod *corev1.Pod, sidecarConfig *Config, annotations map[string]string, logConfs *logConfigs ) ([]byte, error) {
+// create mutation patch for resources
+func createPatch(pod *corev1.Pod,
+	sidecarConfig *injectionConfig, annotations map[string]string, logConfs *logConfigs ) ([]byte, error) {
+
 	var patch []patchOperation
 	var containerList = pod.Spec.Containers
 
@@ -411,8 +464,8 @@ func createPatch(pod *corev1.Pod, sidecarConfig *Config, annotations map[string]
 }
 
 // main mutation process
-func (whsvr *WebhookServer) mutate(ar *v1beta1.AdmissionReview) *v1beta1.AdmissionResponse {
-	glog.Info(whsvr.logPathConfig)
+func (mwhServer *mwhServer) mutate(ar *v1beta1.AdmissionReview) *v1beta1.AdmissionResponse {
+	glog.Info(mwhServer.logPathConfig)
 	req := ar.Request
 	var pod corev1.Pod
 	if err := json.Unmarshal(req.Object.Raw, &pod); err != nil {
@@ -431,7 +484,7 @@ func (whsvr *WebhookServer) mutate(ar *v1beta1.AdmissionReview) *v1beta1.Admissi
 	var podRandomName = pod.GenerateName
 	var podHash = "-" + pod.Labels["pod-template-hash"] + "-"
 	var depName = strings.Replace(podRandomName, podHash, "",1)
-	if !mutationRequired(ignoredNamespaces, &pod.ObjectMeta, depName,whsvr.logPathConfig) {
+	if !mutationRequired(ignoredNamespaces, &pod.ObjectMeta, depName, mwhServer.logPathConfig) {
 		glog.Infof("Skipping mutation for %s/%s due to policy check", pod.Namespace, pod.Name)
 		return &v1beta1.AdmissionResponse {
 			Allowed: true,
@@ -439,9 +492,9 @@ func (whsvr *WebhookServer) mutate(ar *v1beta1.AdmissionReview) *v1beta1.Admissi
 	}
 
 	// Workaround: https://github.com/kubernetes/kubernetes/issues/57982
-	applyDefaultsWorkaround(whsvr.sidecarConfig.Containers, whsvr.sidecarConfig.Volumes)
+	applyDefaultsWorkaround(mwhServer.sidecarConfig.Containers, mwhServer.sidecarConfig.Volumes)
 	annotations := map[string]string{admissionWebhookAnnotationStatusKey: "injected"}
-	patchBytes, err := createPatch(&pod, whsvr.sidecarConfig, annotations, whsvr.logPathConfig)
+	patchBytes, err := createPatch(&pod, mwhServer.sidecarConfig, annotations, mwhServer.logPathConfig)
 	if err != nil {
 		return &v1beta1.AdmissionResponse {
 			Result: &metav1.Status {
@@ -462,7 +515,7 @@ func (whsvr *WebhookServer) mutate(ar *v1beta1.AdmissionReview) *v1beta1.Admissi
 }
 
 // Serve method for webhook server
-func (whsvr *WebhookServer) serve(w http.ResponseWriter, r *http.Request) {
+func (mwhServer *mwhServer) serve(w http.ResponseWriter, r *http.Request) {
 	var body []byte
 	if r.Body != nil {
 		if data, err := ioutil.ReadAll(r.Body); err == nil {
@@ -493,7 +546,7 @@ func (whsvr *WebhookServer) serve(w http.ResponseWriter, r *http.Request) {
 			},
 		}
 	} else {
-		admissionResponse = whsvr.mutate(&ar)
+		admissionResponse = mwhServer.mutate(&ar)
 	}
 
 	admissionReview := v1beta1.AdmissionReview{}

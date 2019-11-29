@@ -14,7 +14,7 @@ import (
 )
 
 func main() {
-	var parameters WhSvrParameters
+	var parameters mwhParameters
 
 	// get command line parameters
 	flag.IntVar(&parameters.port, "port", 443, "Webhook server port.")
@@ -39,7 +39,7 @@ func main() {
 		glog.Errorf("Filed to load key pair: %v", err)
 	}
 	
-	whsvr := &WebhookServer {
+	mwhServer := &mwhServer{
 		sidecarConfig:    sidecarConfig,
 		logPathConfig:    logPathConfig,
 		server:           &http.Server {
@@ -50,12 +50,12 @@ func main() {
 	
 	// define http server and server handler
 	mux := http.NewServeMux()
-	mux.HandleFunc("/mutate", whsvr.serve)
-	whsvr.server.Handler = mux
+	mux.HandleFunc("/mutate", mwhServer.serve)
+	mwhServer.server.Handler = mux
 	
 	// start webhook server in new rountine
 	go func() {
-		if err := whsvr.server.ListenAndServeTLS("", ""); err != nil {
+		if err := mwhServer.server.ListenAndServeTLS("", ""); err != nil {
 			glog.Errorf("Filed to listen and serve webhook server: %v", err)
 		}
 	}()
@@ -66,5 +66,5 @@ func main() {
 	<-signalChan
 	
 	glog.Infof("Got OS shutdown signal, shutting down wenhook server gracefully...")
-	whsvr.server.Shutdown(context.Background())
+	mwhServer.server.Shutdown(context.Background())
 }
