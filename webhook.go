@@ -57,7 +57,8 @@ type mwhParameters struct {
 
 // Stores deployment container name with path to extract logs from
 type logPaths struct {
-	Name string  `yaml:"name"`
+	DeploymentName string `yaml:"deploymentname"`
+	ContainerName string  `yaml:"containername"`
 	Path string  `yaml:"path"`
 }
 
@@ -79,7 +80,7 @@ type injectionConfig struct {
 	Containers  []corev1.Container   `yaml:"containers"`
 	Volumes     []corev1.Volume      `yaml:"volumes"`
 	VolumeMounts []corev1.VolumeMount `yaml:"volumeMount"`
-	Env []corev1.EnvVar     `yaml:"env"`
+	Env []corev1.EnvVar               `yaml:"env"`
 	InitContainers []corev1.Container `yaml:"initcontainers"`
 }
 
@@ -156,8 +157,8 @@ func loadConfig(configFile string) (*injectionConfig, error) {
  */
 func checkLogpathConfs(depname string, logConfs *logConfigs) bool{
 	for _, logLoc := range  logConfs.Logpaths {
-		if strings.Contains(logLoc.Name,depname) {
-			glog.Infof("required in deployment and container pair ", logLoc.Name)
+		if logLoc.DeploymentName == depname{
+			glog.Infof("required in deployment and container pair ", logLoc.DeploymentName)
 			return true
 		}
 	}
@@ -357,14 +358,13 @@ func updateAnnotation(target map[string]string, annotations map[string]string) (
  *  @param logConfs Log Configuration required by the TestGrid job
  *  @return String path to extract logs from the deployment name container name pair
  */
-func findLogPath(key string, logConfs *logConfigs ) (path string) {
+func findLogPath(depName string, containerName string, logConfs *logConfigs ) (path string) {
 	for _, logLoc := range  logConfs.Logpaths {
-		glog.Infof(logLoc.Name, key)
-		if logLoc.Name == key {
+		if logLoc.DeploymentName == depName && logLoc.ContainerName == containerName {
 			return logLoc.Path
 		}
 	}
-	glog.Info("No path found for ",key,"using default")
+	glog.Info("No path found for ",depName, containerName,"using default")
 	return "/opt/testgrid/logs"
 }
 
@@ -417,8 +417,7 @@ func createPatch(pod *corev1.Pod,
 		for index, container := range containerList {
 
 			var containerInjectVolMounts = []corev1.VolumeMount{}
-			var logPathKey = depName + "-" + container.Name
-			var logPath = findLogPath(logPathKey, logConfs)
+			var logPath = findLogPath(depName,container.Name,logConfs)
 			var injectedVolMount = corev1.VolumeMount{Name:"testgrid-"+strconv.Itoa(index) ,
 				MountPath: logPath}
 			var sidecarInjectedVolMount = corev1.VolumeMount{Name:"testgrid-"+strconv.Itoa(index) ,
