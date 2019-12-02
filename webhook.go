@@ -57,8 +57,8 @@ type mwhParameters struct {
 
 // Stores deployment container name with path to extract logs from
 type logPaths struct {
-	DeploymentName string `yaml:"deploymentname"`
-	ContainerName string  `yaml:"containername"`
+	DeploymentName string `yaml:"deploymentName"`
+	ContainerName string  `yaml:"containerName"`
 	Path string  `yaml:"path"`
 }
 
@@ -81,7 +81,7 @@ type injectionConfig struct {
 	Volumes     []corev1.Volume      `yaml:"volumes"`
 	VolumeMounts []corev1.VolumeMount `yaml:"volumeMount"`
 	Env []corev1.EnvVar               `yaml:"env"`
-	InitContainers []corev1.Container `yaml:"initcontainers"`
+	InitContainers []corev1.Container `yaml:"initContainers"`
 }
 
 type patchOperation struct {
