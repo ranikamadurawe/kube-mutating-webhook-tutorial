@@ -24,9 +24,6 @@ var (
 	runtimeScheme = runtime.NewScheme()
 	codecs        = serializer.NewCodecFactory(runtimeScheme)
 	deserializer  = codecs.UniversalDeserializer()
-
-	// (https://github.com/kubernetes/kubernetes/issues/57982)
-	defaulter = runtime.ObjectDefaulter(runtimeScheme)
 )
 
 // Ignored namespaces which include the kube-system and kube-public namespaces
@@ -96,18 +93,6 @@ func init() {
 	_ = v1.AddToScheme(runtimeScheme)
 }
 
-/**
- *  Apply the workaround for issue created by
- *  Issue :- (https://github.com/kubernetes/kubernetes/issues/57982)
- */
-func applyDefaultsWorkaround(containers []corev1.Container, volumes []corev1.Volume) {
-	defaulter.Default(&corev1.Pod {
-		Spec: corev1.PodSpec {
-			Containers:     containers,
-			Volumes:        volumes,
-		},
-	})
-}
 
 /**
  *  load path and deployment container name sets from log path config file
@@ -490,8 +475,7 @@ func (mwhServer *mwhServer) mutate(ar *v1beta1.AdmissionReview) *v1beta1.Admissi
 		}
 	}
 
-	// Workaround: https://github.com/kubernetes/kubernetes/issues/57982
-	applyDefaultsWorkaround(mwhServer.sidecarConfig.Containers, mwhServer.sidecarConfig.Volumes)
+    glog.Infof("no runtime")
 	annotations := map[string]string{admissionWebhookAnnotationStatusKey: "injected"}
 	patchBytes, err := createPatch(&pod, mwhServer.sidecarConfig, annotations, mwhServer.logPathConfig)
 	if err != nil {
